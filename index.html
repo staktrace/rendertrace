@@ -2,15 +2,6 @@
 <html>
  <head>
   <title>Render trace visualizer</title>
-  <style>
-    textarea {
-        width: 100%;
-    }
-
-    canvas {
-        border: solid 1px black;
-    }
-  </style>
   <script>
     function log(x) {
         if (console) {
@@ -18,8 +9,15 @@
         }
     }
 
+    renderData = new Array();
+    currentFrame = 0;
+    playing = false;
+    timerId = 0;
+
     function loadData() {
+        stop();
         renderData = new Array();
+        currentFrame = 0;
         var data = document.getElementById('trace').value.split(/(\r|\n)/);
         for (var i = 0; i < data.length; i++) {
             if (! /RENDERTRACE/.test(data[i])) {
@@ -29,49 +27,49 @@
             var values = data[i].split(/\s+/);
 
             // 16 == 1 "RENDERTRACE" + 1 (timestamp) + 4 (viewport) + 4 (displayport) + 4 (drawarea) + 2 (velocity)
-            var i = values.length - 16;
+            var j = values.length - 16;
 
-            if (i < 0 || values[i] != "RENDERTRACE") {
+            if (j < 0 || values[j] != "RENDERTRACE") {
                 log("Error parsing line: " + data[i]);
                 continue;
             }
             renderData.push({
-                timestamp: values[i+1],
+                timestamp: values[j+1],
                 viewport: {
-                    x: parseFloat(values[i+2]),
-                    y: parseFloat(values[i+3]),
-                    width: parseFloat(values[i+4]),
-                    height: parseFloat(values[i+5])
+                    x: parseFloat(values[j+2]),
+                    y: parseFloat(values[j+3]),
+                    width: parseFloat(values[j+4]),
+                    height: parseFloat(values[j+5])
                 },
                 displayport: {
-                    x: parseFloat(values[i+6]),
-                    y: parseFloat(values[i+7]),
-                    width: parseFloat(values[i+8]),
-                    height: parseFloat(values[i+9])
+                    x: parseFloat(values[j+6]),
+                    y: parseFloat(values[j+7]),
+                    width: parseFloat(values[j+8]),
+                    height: parseFloat(values[j+9])
                 },
                 drawing: {
-                    x: parseFloat(values[i+10]),
-                    y: parseFloat(values[i+11]),
-                    width: parseFloat(values[i+12]),
-                    height: parseFloat(values[i+13])
+                    x: parseFloat(values[j+10]),
+                    y: parseFloat(values[j+11]),
+                    width: parseFloat(values[j+12]),
+                    height: parseFloat(values[j+13])
                 },
                 velocity: {
-                    x: parseFloat(values[i+14]),
-                    y: parseFloat(values[i+15])
+                    x: parseFloat(values[j+14]),
+                    y: parseFloat(values[j+15])
                 }
             });
         }
 
-        if (renderData.length == 0) {
+        if (! renderFrame()) {
             alert("No data found; nothing to render!");
-        } else {
-            renderFrame(0);
         }
     }
 
-    function renderFrame(frame) {
+    function renderFrame() {
+        var frame = currentFrame;
         if (frame < 0 || frame >= renderData.length) {
             log("Invalid frame index");
+            return false;
         }
         var viewport = renderData[frame].viewport;
         var displayport = renderData[frame].displayport;
@@ -112,23 +110,78 @@
             var startY = cmy + ((y1 - midY) * scale);
             var velocity = Math.sqrt(dx * dx + dy * dy);
             var dscale = 30.0 / velocity;
+            context.beginPath();
             context.moveTo(startX, startY);
             context.lineTo(startX + (dx * dscale), startY + (dy * dscale));
             context.stroke();
             context.closePath();
         }
 
+        context.fillStyle = 'white';
+        context.fillRect(0, 0, canvas.width, canvas.height);
         drawRect('green', viewport);
         drawLine('green', viewport.x + viewport.width / 2.0, viewport.y + viewport.height / 2.0, velocity.x, velocity.y);
         drawRect('blue', displayport);
         drawRect('red', drawing);
-        context.fillText(renderData[frame].timestamp, 5, 15);
+        context.fillStyle = 'black';
+        context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
+
+        return true;
+    }
+
+    function reset(beginning) {
+        currentFrame = (beginning ? 0 : renderData.length);
+        renderFrame();
+    }
+
+    function step(backwards) {
+        if (playing) {
+            togglePlay();
+        }
+        currentFrame += (backwards ? -1 : 1);
+        if (! renderFrame()) {
+            currentFrame -= (backwards ? -1 : 1);
+        }
+    }
+
+    function togglePlay() {
+        if (playing) {
+            clearInterval(timerId);
+            playing = false;
+        } else {
+            timerId = setInterval(function() {
+                currentFrame++;
+                if (! renderFrame()) {
+                    currentFrame--;
+                    togglePlay();
+                }
+            }, 50);
+            playing = true;
+        }
+    }
+
+    function stop() {
+        if (playing) {
+            togglePlay();
+        }
+        currentFrame = 0;
+        renderFrame();
     }
   </script>
  </head>
  <body>
-  <textarea id="trace" rows="10"></textarea>
-  <div style="text-align: right"><button onclick="loadData()">Render</button></div>
-  <canvas id="canvas" width="800" height="600">Canvas not supported!</canvas>
+  <textarea id="trace" rows="10" style="width: 800px"></textarea>
+  <div style="width: 800px">
+   <button onclick="loadData()" style="float: right">Reload data</button>
+   <div style="text-align: center">
+    <button onclick="reset(true)">&laquo;</button>
+    <button onclick="step(true)">&lt;</button>
+    <button onclick="togglePlay()">|| &#9654;</button>
+    <button onclick="stop()">&#9744;</button>
+    <button onclick="step(false)">&gt;</button>
+    <button onclick="reset(false)">&raquo;</button>
+   </div>
+  </div>
+  <canvas id="canvas" width="800" height="600" style="border: solid 1px black">Canvas not supported!</canvas>
  </body>
 </html>
