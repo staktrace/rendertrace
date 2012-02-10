@@ -18,54 +18,74 @@
     playing = false;
     timerId = 0;
 
+    // parses the lines in the textarea, ignoring anything that doesn't have RENDERTRACE.
+    // for each matching line, tokenizes on whitespace and ignores all tokens prior to
+    // RENDERTRACE. Allowed syntaxes:
+    //   <junk> RENDERTRACE <timestamp> rect <color> <x> <y> <width> <height>
+    //   <junk> RENDERTRACE <timestamp> vector <color> <x> <y>
     function loadData() {
         stop();
         renderData = new Array();
         currentFrame = 0;
         var data = document.getElementById('trace').value.split(/(\r|\n)/);
         for (var i = 0; i < data.length; i++) {
+            // skip lines without RENDERTRACE
             if (! /RENDERTRACE/.test(data[i])) {
                 continue;
             }
 
             var values = data[i].split(/\s+/);
-
-            // 16 == 1 "RENDERTRACE" + 1 (timestamp) + 4 (viewport) + 4 (displayport) + 4 (drawarea) + 2 (velocity)
-            var j = values.length - 16;
-
-            if (j < 0 || values[j] != "RENDERTRACE") {
+            var j = 0;
+            // skip tokens until RENDERTRACE
+            while (j < values.length && values[j++] != "RENDERTRACE");
+            if (j >= values.length - 2) {
                 log("Error parsing line: " + data[i]);
                 continue;
             }
-            renderData.push({
-                timestamp: values[j+1],
-                rects: {
-                    "green": {
-                        x: parseFloat(values[j+2]),
-                        y: parseFloat(values[j+3]),
-                        width: parseFloat(values[j+4]),
-                        height: parseFloat(values[j+5])
-                    },
-                    "blue": {
-                        x: parseFloat(values[j+6]),
-                        y: parseFloat(values[j+7]),
-                        width: parseFloat(values[j+8]),
-                        height: parseFloat(values[j+9])
-                    },
-                    "red": {
-                        x: parseFloat(values[j+10]),
-                        y: parseFloat(values[j+11]),
-                        width: parseFloat(values[j+12]),
-                        height: parseFloat(values[j+13])
+
+            var timestamp = values[j++];
+            var dataIndex = renderData.length;
+            if (dataIndex > 0 && renderData[dataIndex - 1].timestamp == timestamp) {
+                dataIndex--;
+            } else if (dataIndex > 0) {
+                // clone a new copy of the last frame
+                renderData.push(JSON.parse(JSON.stringify(renderData[dataIndex - 1])));
+                renderData[dataIndex].timestamp = timestamp;
+            } else {
+                renderData.push({
+                    timestamp: timestamp,
+                    rects: {},
+                    vectors: {}
+                });
+            }
+
+            switch (values[j++]) {
+                case "rect":
+                    if (j > values.length - 5) {
+                        log("Error parsing line: " + data[i]);
+                        continue;
                     }
-                },
-                vectors: {
-                    "green": {
-                        x: parseFloat(values[j+14]),
-                        y: parseFloat(values[j+15])
+                    var rect = {};
+                    renderData[dataIndex].rects[values[j++]] = rect;
+                    rect.x = parseFloat(values[j++]);
+                    rect.y = parseFloat(values[j++]);
+                    rect.width = parseFloat(values[j++]);
+                    rect.height = parseFloat(values[j++]);
+                    break;
+                case "vector":
+                    if (j > values.length - 3) {
+                        log("Error parsing line: " + data[i]);
+                        continue;
                     }
-                }
-            });
+                    var vector = {};
+                    renderData[dataIndex].vectors[values[j++]] = vector;
+                    vector.x = parseFloat(values[j++]);
+                    vector.y = parseFloat(values[j++]);
+                    break;
+                default:
+                    log("Error parsing line " + data[i]);
+                    break;
+            }
         }
 
         if (! renderFrame()) {
