@@ -3,6 +3,10 @@
  <head>
   <title>Render trace visualizer</title>
   <script>
+    CANVAS_USE_RATIO = 0.75;
+    FRAME_INTERVAL_MS = 50;
+    VECTOR_NORMALIZED_MAGNITUDE = 30.0;
+
     function log(x) {
         if (console) {
             console.log(x);
@@ -106,7 +110,7 @@
 
         var cmx = canvas.width / 2.0;
         var cmy = canvas.height / 2.0;
-        var scale = Math.min(cmx / (maxX - minX), cmy / (maxY - minY));
+        var scale = CANVAS_USE_RATIO * Math.min(canvas.width / (maxX - minX), canvas.height / (maxY - minY));
 
         function projectX(value) {
             return cmx + ((value - midX) * scale);
@@ -133,7 +137,7 @@
             var baseMidX = baseRect.x + (baseRect.width / 2.0);
             var baseMidY = baseRect.y + (baseRect.height / 2.0);
             var magnitude = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
-            var dscale = 30.0 / magnitude;
+            var dscale = VECTOR_NORMALIZED_MAGNITUDE / magnitude;
             context.strokeStyle = color;
             context.beginPath();
             context.moveTo(projectX(baseMidX), projectY(baseMidY));
@@ -182,7 +186,7 @@
                     currentFrame--;
                     togglePlay();
                 }
-            }, 50);
+            }, FRAME_INTERVAL_MS);
             playing = true;
         }
     }
