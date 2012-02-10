@@ -7,16 +7,16 @@
     FRAME_INTERVAL_MS = 50;
     VECTOR_NORMALIZED_MAGNITUDE = 30.0;
 
+    renderData = new Array();
+    currentFrame = 0;
+    playing = false;
+    timerId = 0;
+
     function log(x) {
         if (console) {
             console.log(x);
         }
     }
-
-    renderData = new Array();
-    currentFrame = 0;
-    playing = false;
-    timerId = 0;
 
     // parses the lines in the textarea, ignoring anything that doesn't have RENDERTRACE.
     // for each matching line, tokenizes on whitespace and ignores all tokens prior to
@@ -27,63 +27,70 @@
         stop();
         renderData = new Array();
         currentFrame = 0;
-        var data = document.getElementById('trace').value.split(/(\r|\n)/);
-        for (var i = 0; i < data.length; i++) {
+
+        var lines = document.getElementById('trace').value.split(/(\r|\n)/);
+        for (var i = 0; i < lines.length; i++) {
             // skip lines without RENDERTRACE
-            if (! /RENDERTRACE/.test(data[i])) {
+            if (! /RENDERTRACE/.test(lines[i])) {
                 continue;
             }
 
-            var values = data[i].split(/\s+/);
+            var tokens = lines[i].split(/\s+/);
             var j = 0;
             // skip tokens until RENDERTRACE
-            while (j < values.length && values[j++] != "RENDERTRACE");
-            if (j >= values.length - 2) {
-                log("Error parsing line: " + data[i]);
+            while (j < tokens.length && tokens[j++] != "RENDERTRACE");
+            if (j >= tokens.length - 2) {
+                log("Error parsing line: " + lines[i]);
                 continue;
             }
 
-            var timestamp = values[j++];
-            var dataIndex = renderData.length;
-            if (dataIndex > 0 && renderData[dataIndex - 1].timestamp == timestamp) {
-                dataIndex--;
-            } else if (dataIndex > 0) {
-                // clone a new copy of the last frame
-                renderData.push(JSON.parse(JSON.stringify(renderData[dataIndex - 1])));
-                renderData[dataIndex].timestamp = timestamp;
-            } else {
+            var timestamp = tokens[j++];
+            var destIndex = renderData.length;
+            if (destIndex == 0) {
+                // create the initial frame
                 renderData.push({
                     timestamp: timestamp,
                     rects: {},
                     vectors: {}
                 });
+            } else if (renderData[destIndex - 1].timestamp == timestamp) {
+                // timestamp hasn't changed use, so update the previous object
+                destIndex--;
+            } else {
+                // clone a new copy of the last frame and update timestamp
+                renderData.push(JSON.parse(JSON.stringify(renderData[destIndex - 1])));
+                renderData[destIndex].timestamp = timestamp;
             }
 
-            switch (values[j++]) {
+            switch (tokens[j++]) {
                 case "rect":
-                    if (j > values.length - 5) {
-                        log("Error parsing line: " + data[i]);
+                    if (j > tokens.length - 5) {
+                        log("Error parsing line: " + lines[i]);
                         continue;
                     }
+
                     var rect = {};
-                    renderData[dataIndex].rects[values[j++]] = rect;
-                    rect.x = parseFloat(values[j++]);
-                    rect.y = parseFloat(values[j++]);
-                    rect.width = parseFloat(values[j++]);
-                    rect.height = parseFloat(values[j++]);
+                    renderData[destIndex].rects[tokens[j++]] = rect;
+                    rect.x = parseFloat(tokens[j++]);
+                    rect.y = parseFloat(tokens[j++]);
+                    rect.width = parseFloat(tokens[j++]);
+                    rect.height = parseFloat(tokens[j++]);
                     break;
+
                 case "vector":
-                    if (j > values.length - 3) {
-                        log("Error parsing line: " + data[i]);
+                    if (j > tokens.length - 3) {
+                        log("Error parsing line: " + lines[i]);
                         continue;
                     }
+
                     var vector = {};
-                    renderData[dataIndex].vectors[values[j++]] = vector;
-                    vector.x = parseFloat(values[j++]);
-                    vector.y = parseFloat(values[j++]);
+                    renderData[destIndex].vectors[tokens[j++]] = vector;
+                    vector.x = parseFloat(tokens[j++]);
+                    vector.y = parseFloat(tokens[j++]);
                     break;
+
                 default:
-                    log("Error parsing line " + data[i]);
+                    log("Error parsing line " + lines[i]);
                     break;
             }
         }
@@ -93,6 +100,8 @@
         }
     }
 
+    // render the current frame (i.e. renderData[currentFrame])
+    // returns false if currentFrame is out of bounds, true otherwise
     function renderFrame() {
         var frame = currentFrame;
         if (frame < 0 || frame >= renderData.length) {
@@ -107,6 +116,12 @@
 
         var context = canvas.getContext('2d');
 
+        // to account for arbitrary coordinate systems, we first calculate
+        // the bounding box of the rects. then, we project this so that it
+        // is centered on the canvas and scaled to use at most CANVAS_USE_RATIO
+        // on either axis. aspect ratio is maintained during scaling.
+
+        // get the bounding box for the rects in this frame
         var minX = undefined;
         var minY = undefined;
         var maxX = undefined;
@@ -125,11 +140,16 @@
                 maxY = Math.max(maxY, rect.y + rect.height);
             }
         }
+
+        // midpoint of the bounding box
         var midX = (minX + maxX) / 2.0;
         var midY = (minY + maxY) / 2.0;
 
+        // midpoint of the canvas
         var cmx = canvas.width / 2.0;
         var cmy = canvas.height / 2.0;
+
+        // scale factor
         var scale = CANVAS_USE_RATIO * Math.min(canvas.width / (maxX - minX), canvas.height / (maxY - minY));
 
         function projectX(value) {
@@ -149,7 +169,11 @@
                 rect.height * scale);
         }
 
-        function drawLine(color, vector) {
+        // vector is an object containg x,y properties. the vector
+        // starts from the center of the rect of the same color, and
+        // extends outwards. the magnitude of the vector is normalized
+        // to VECTOR_NORMALIZED_MAGNITUDE.
+        function drawVector(color, vector) {
             var baseRect = renderData[frame].rects[color];
             if (typeof baseRect == "undefined") {
                 return;
@@ -166,14 +190,18 @@
             context.closePath();
         }
 
+        // clear canvas
         context.fillStyle = 'white';
         context.fillRect(0, 0, canvas.width, canvas.height);
+        // draw rects
         for (i in renderData[frame].rects) {
             drawRect(i, renderData[frame].rects[i]);
         }
+        // draw vectors
         for (i in renderData[frame].vectors) {
-            drawLine(i, renderData[frame].vectors[i]);
+            drawVector(i, renderData[frame].vectors[i]);
         }
+        // draw timestamp and frame counter
         context.fillStyle = 'black';
         context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
 
