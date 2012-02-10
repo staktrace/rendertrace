@@ -35,27 +35,31 @@
             }
             renderData.push({
                 timestamp: values[j+1],
-                viewport: {
-                    x: parseFloat(values[j+2]),
-                    y: parseFloat(values[j+3]),
-                    width: parseFloat(values[j+4]),
-                    height: parseFloat(values[j+5])
+                rects: {
+                    "green": {
+                        x: parseFloat(values[j+2]),
+                        y: parseFloat(values[j+3]),
+                        width: parseFloat(values[j+4]),
+                        height: parseFloat(values[j+5])
+                    },
+                    "blue": {
+                        x: parseFloat(values[j+6]),
+                        y: parseFloat(values[j+7]),
+                        width: parseFloat(values[j+8]),
+                        height: parseFloat(values[j+9])
+                    },
+                    "red": {
+                        x: parseFloat(values[j+10]),
+                        y: parseFloat(values[j+11]),
+                        width: parseFloat(values[j+12]),
+                        height: parseFloat(values[j+13])
+                    }
                 },
-                displayport: {
-                    x: parseFloat(values[j+6]),
-                    y: parseFloat(values[j+7]),
-                    width: parseFloat(values[j+8]),
-                    height: parseFloat(values[j+9])
-                },
-                drawing: {
-                    x: parseFloat(values[j+10]),
-                    y: parseFloat(values[j+11]),
-                    width: parseFloat(values[j+12]),
-                    height: parseFloat(values[j+13])
-                },
-                velocity: {
-                    x: parseFloat(values[j+14]),
-                    y: parseFloat(values[j+15])
+                vectors: {
+                    "green": {
+                        x: parseFloat(values[j+14]),
+                        y: parseFloat(values[j+15])
+                    }
                 }
             });
         }
@@ -71,58 +75,81 @@
             log("Invalid frame index");
             return false;
         }
-        var viewport = renderData[frame].viewport;
-        var displayport = renderData[frame].displayport;
-        var drawing = renderData[frame].drawing;
-        var velocity = renderData[frame].velocity;
 
         var canvas = document.getElementById('canvas');
         if (! canvas.getContext) {
             log("No canvas context");
         }
 
-        var minX = Math.min(Math.min(viewport.x, displayport.x), drawing.x);
-        var maxX = Math.max(Math.max(viewport.x + viewport.width, displayport.x + displayport.width), drawing.x + drawing.width);
-        var midX = (minX + maxX) / 2.0;
+        var context = canvas.getContext('2d');
 
-        var minY = Math.min(Math.min(viewport.y, displayport.y), drawing.y);
-        var maxY = Math.max(Math.max(viewport.y + viewport.height, displayport.y + displayport.height), drawing.y + drawing.height);
+        var minX = undefined;
+        var minY = undefined;
+        var maxX = undefined;
+        var maxY = undefined;
+        for (i in renderData[frame].rects) {
+            var rect = renderData[frame].rects[i];
+            if (typeof minX == "undefined") {
+                minX = rect.x;
+                minY = rect.y;
+                maxX = rect.x + rect.width;
+                maxY = rect.y + rect.height;
+            } else {
+                minX = Math.min(minX, rect.x);
+                minY = Math.min(minY, rect.y);
+                maxX = Math.max(maxX, rect.x + rect.width);
+                maxY = Math.max(maxY, rect.y + rect.height);
+            }
+        }
+        var midX = (minX + maxX) / 2.0;
         var midY = (minY + maxY) / 2.0;
 
         var cmx = canvas.width / 2.0;
         var cmy = canvas.height / 2.0;
         var scale = Math.min(cmx / (maxX - minX), cmy / (maxY - minY));
 
-        var context = canvas.getContext('2d');
+        function projectX(value) {
+            return cmx + ((value - midX) * scale);
+        }
+
+        function projectY(value) {
+            return cmy + ((value - midY) * scale);
+        }
 
         function drawRect(color, rect) {
             context.strokeStyle = color;
             context.strokeRect(
-                cmx + ((rect.x - midX) * scale),
-                cmy + ((rect.y - midY) * scale),
+                projectX(rect.x),
+                projectY(rect.y),
                 rect.width * scale,
                 rect.height * scale);
         }
 
-        function drawLine(color, x1, y1, dx, dy) {
+        function drawLine(color, vector) {
+            var baseRect = renderData[frame].rects[color];
+            if (typeof baseRect == "undefined") {
+                return;
+            }
+            var baseMidX = baseRect.x + (baseRect.width / 2.0);
+            var baseMidY = baseRect.y + (baseRect.height / 2.0);
+            var magnitude = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+            var dscale = 30.0 / magnitude;
             context.strokeStyle = color;
-            var startX = cmx + ((x1 - midX) * scale);
-            var startY = cmy + ((y1 - midY) * scale);
-            var velocity = Math.sqrt(dx * dx + dy * dy);
-            var dscale = 30.0 / velocity;
             context.beginPath();
-            context.moveTo(startX, startY);
-            context.lineTo(startX + (dx * dscale), startY + (dy * dscale));
+            context.moveTo(projectX(baseMidX), projectY(baseMidY));
+            context.lineTo(projectX(baseMidX) + (vector.x * dscale), projectY(baseMidY) + (vector.y * dscale));
             context.stroke();
             context.closePath();
         }
 
         context.fillStyle = 'white';
         context.fillRect(0, 0, canvas.width, canvas.height);
-        drawRect('green', viewport);
-        drawLine('green', viewport.x + viewport.width / 2.0, viewport.y + viewport.height / 2.0, velocity.x, velocity.y);
-        drawRect('blue', displayport);
-        drawRect('red', drawing);
+        for (i in renderData[frame].rects) {
+            drawRect(i, renderData[frame].rects[i]);
+        }
+        for (i in renderData[frame].vectors) {
+            drawLine(i, renderData[frame].vectors[i]);
+        }
         context.fillStyle = 'black';
         context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
 
