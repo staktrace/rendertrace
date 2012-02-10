@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+ <head>
+  <title>Render trace visualizer</title>
+  <style>
+    textarea {
+        width: 100%;
+    }
+
+    canvas {
+        border: solid 1px black;
+    }
+  </style>
+  <script>
+    function log(x) {
+        if (console) {
+            console.log(x);
+        }
+    }
+
+    function loadData() {
+        renderData = new Array();
+        var data = document.getElementById('trace').value.split(/(\r|\n)/);
+        for (var i = 0; i < data.length; i++) {
+            if (! /RENDERTRACE/.test(data[i])) {
+                continue;
+            }
+
+            var values = data[i].split(/\s+/);
+
+            // 16 == 1 "RENDERTRACE" + 1 (timestamp) + 4 (viewport) + 4 (displayport) + 4 (drawarea) + 2 (velocity)
+            var i = values.length - 16;
+
+            if (i < 0 || values[i] != "RENDERTRACE") {
+                log("Error parsing line: " + data[i]);
+                continue;
+            }
+            renderData.push({
+                timestamp: values[i+1],
+                viewport: {
+                    x: parseFloat(values[i+2]),
+                    y: parseFloat(values[i+3]),
+                    width: parseFloat(values[i+4]),
+                    height: parseFloat(values[i+5])
+                },
+                displayport: {
+                    x: parseFloat(values[i+6]),
+                    y: parseFloat(values[i+7]),
+                    width: parseFloat(values[i+8]),
+                    height: parseFloat(values[i+9])
+                },
+                drawing: {
+                    x: parseFloat(values[i+10]),
+                    y: parseFloat(values[i+11]),
+                    width: parseFloat(values[i+12]),
+                    height: parseFloat(values[i+13])
+                },
+                velocity: {
+                    x: parseFloat(values[i+14]),
+                    y: parseFloat(values[i+15])
+                }
+            });
+        }
+
+        if (renderData.length == 0) {
+            alert("No data found; nothing to render!");
+        } else {
+            renderFrame(0);
+        }
+    }
+
+    function renderFrame(frame) {
+        if (frame < 0 || frame >= renderData.length) {
+            log("Invalid frame index");
+        }
+        var viewport = renderData[frame].viewport;
+        var displayport = renderData[frame].displayport;
+        var drawing = renderData[frame].drawing;
+        var velocity = renderData[frame].velocity;
+
+        var canvas = document.getElementById('canvas');
+        if (! canvas.getContext) {
+            log("No canvas context");
+        }
+
+        var minX = Math.min(Math.min(viewport.x, displayport.x), drawing.x);
+        var maxX = Math.max(Math.max(viewport.x + viewport.width, displayport.x + displayport.width), drawing.x + drawing.width);
+        var midX = (minX + maxX) / 2.0;
+
+        var minY = Math.min(Math.min(viewport.y, displayport.y), drawing.y);
+        var maxY = Math.max(Math.max(viewport.y + viewport.height, displayport.y + displayport.height), drawing.y + drawing.height);
+        var midY = (minY + maxY) / 2.0;
+
+        var cmx = canvas.width / 2.0;
+        var cmy = canvas.height / 2.0;
+        var scale = Math.min(cmx / (maxX - minX), cmy / (maxY - minY));
+
+        var context = canvas.getContext('2d');
+
+        function drawRect(color, rect) {
+            context.strokeStyle = color;
+            context.strokeRect(
+                cmx + ((rect.x - midX) * scale),
+                cmy + ((rect.y - midY) * scale),
+                rect.width * scale,
+                rect.height * scale);
+        }
+
+        function drawLine(color, x1, y1, dx, dy) {
+            context.strokeStyle = color;
+            var startX = cmx + ((x1 - midX) * scale);
+            var startY = cmy + ((y1 - midY) * scale);
+            var velocity = Math.sqrt(dx * dx + dy * dy);
+            var dscale = 30.0 / velocity;
+            context.moveTo(startX, startY);
+            context.lineTo(startX + (dx * dscale), startY + (dy * dscale));
+            context.stroke();
+            context.closePath();
+        }
+
+        drawRect('green', viewport);
+        drawLine('green', viewport.x + viewport.width / 2.0, viewport.y + viewport.height / 2.0, velocity.x, velocity.y);
+        drawRect('blue', displayport);
+        drawRect('red', drawing);
+        context.fillText(renderData[frame].timestamp, 5, 15);
+    }
+  </script>
+ </head>
+ <body>
+  <textarea id="trace" rows="10"></textarea>
+  <div style="text-align: right"><button onclick="loadData()">Render</button></div>
+  <canvas id="canvas" width="800" height="600">Canvas not supported!</canvas>
+ </body>
+</html>
