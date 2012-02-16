@@ -37,10 +37,16 @@
         maxX = undefined;
         maxY = undefined;
 
+        var charPos = 0;
         var lines = document.getElementById('trace').value.split(/(\r|\n)/);
         for (var i = 0; i < lines.length; i++) {
+            if (lines[i] == '\r' || lines[i] == '\n') {
+                continue;
+            }
+
             // skip lines without RENDERTRACE
             if (! /RENDERTRACE/.test(lines[i])) {
+                charPos += lines[i].length + 1;
                 continue;
             }
 
@@ -50,6 +56,7 @@
             while (j < tokens.length && tokens[j++] != "RENDERTRACE");
             if (j >= tokens.length - 2) {
                 log("Error parsing line: " + lines[i]);
+                charPos += lines[i].length + 1;
                 continue;
             }
 
@@ -59,22 +66,28 @@
                 // create the initial frame
                 renderData.push({
                     timestamp: timestamp,
+                    dataStart: charPos,
+                    dataEnd: charPos + lines[i].length,
                     rects: {},
                     vectors: {}
                 });
             } else if (renderData[destIndex - 1].timestamp == timestamp) {
                 // timestamp hasn't changed use, so update the previous object
                 destIndex--;
+                renderData[ destIndex ].dataEnd = charPos + lines[i].length;
             } else {
                 // clone a new copy of the last frame and update timestamp
                 renderData.push(JSON.parse(JSON.stringify(renderData[destIndex - 1])));
                 renderData[destIndex].timestamp = timestamp;
+                renderData[destIndex].dataStart = charPos;
+                renderData[destIndex].dataEnd = charPos + lines[i].length;
             }
 
             switch (tokens[j++]) {
                 case "rect":
                     if (j > tokens.length - 5) {
                         log("Error parsing line: " + lines[i]);
+                        charPos += lines[i].length + 1;
                         continue;
                     }
 
@@ -101,6 +114,7 @@
                 case "vector":
                     if (j > tokens.length - 3) {
                         log("Error parsing line: " + lines[i]);
+                        charPos += lines[i].length + 1;
                         continue;
                     }
 
@@ -114,6 +128,7 @@
                     log("Error parsing line " + lines[i]);
                     break;
             }
+            charPos += lines[i].length + 1;
         }
 
         if (! renderFrame()) {
@@ -201,6 +216,10 @@
         context.fillStyle = 'black';
         context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
 
+        log(renderData[frame].dataStart);
+        log(renderData[frame].dataEnd);
+        document.getElementById('active').textContent = document.getElementById('trace').value.substring(renderData[frame].dataStart, renderData[frame].dataEnd);
+
         return true;
     }
 
@@ -245,8 +264,8 @@
   </script>
  </head>
  <body>
-  <textarea id="trace" rows="10" style="width: 800px"></textarea>
-  <div style="width: 800px">
+  <textarea id="trace" rows="10" style="width: 700px"></textarea>
+  <div style="width: 700px">
    <button onclick="loadData()" style="float: right">Reload data</button>
    <div style="text-align: center">
     <button onclick="reset(true)">&laquo;</button>
@@ -257,6 +276,7 @@
     <button onclick="reset(false)">&raquo;</button>
    </div>
   </div>
-  <canvas id="canvas" width="800" height="600" style="border: solid 1px black">Canvas not supported!</canvas>
+  <canvas id="canvas" width="700" height="600" style="border: solid 1px black; float: left">Canvas not supported!</canvas>
+  <pre id="active" style="width: 400px; float: left; margin-left: 10px; border: solid 1px black">(currently visible stuff will go here)</pre>
  </body>
 </html>
