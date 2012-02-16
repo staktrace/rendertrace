@@ -12,6 +12,11 @@
     playing = false;
     timerId = 0;
 
+    minX = undefined;
+    minY = undefined;
+    maxX = undefined;
+    maxY = undefined;
+
     function log(x) {
         if (console) {
             console.log(x);
@@ -27,6 +32,10 @@
         stop();
         renderData = new Array();
         currentFrame = 0;
+        minX = undefined;
+        minY = undefined;
+        maxX = undefined;
+        maxY = undefined;
 
         var lines = document.getElementById('trace').value.split(/(\r|\n)/);
         for (var i = 0; i < lines.length; i++) {
@@ -75,6 +84,18 @@
                     rect.y = parseFloat(tokens[j++]);
                     rect.width = parseFloat(tokens[j++]);
                     rect.height = parseFloat(tokens[j++]);
+
+                    if (typeof minX == "undefined") {
+                        minX = rect.x;
+                        minY = rect.y;
+                        maxX = rect.x + rect.width;
+                        maxY = rect.y + rect.height;
+                    } else {
+                        minX = Math.min(minX, rect.x);
+                        minY = Math.min(minY, rect.y);
+                        maxX = Math.max(maxX, rect.x + rect.width);
+                        maxY = Math.max(maxY, rect.y + rect.height);
+                    }
                     break;
 
                 case "vector":
@@ -115,31 +136,6 @@
         }
 
         var context = canvas.getContext('2d');
-
-        // to account for arbitrary coordinate systems, we first calculate
-        // the bounding box of the rects. then, we project this so that it
-        // is centered on the canvas and scaled to use at most CANVAS_USE_RATIO
-        // on either axis. aspect ratio is maintained during scaling.
-
-        // get the bounding box for the rects in this frame
-        var minX = undefined;
-        var minY = undefined;
-        var maxX = undefined;
-        var maxY = undefined;
-        for (i in renderData[frame].rects) {
-            var rect = renderData[frame].rects[i];
-            if (typeof minX == "undefined") {
-                minX = rect.x;
-                minY = rect.y;
-                maxX = rect.x + rect.width;
-                maxY = rect.y + rect.height;
-            } else {
-                minX = Math.min(minX, rect.x);
-                minY = Math.min(minY, rect.y);
-                maxX = Math.max(maxX, rect.x + rect.width);
-                maxY = Math.max(maxY, rect.y + rect.height);
-            }
-        }
 
         // midpoint of the bounding box
         var midX = (minX + maxX) / 2.0;
