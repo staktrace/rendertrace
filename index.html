@@ -81,13 +81,14 @@
             }
 
             switch (tokens[j++]) {
+                case "fillrect":
                 case "rect":
                     if (j > tokens.length - 5) {
                         log("Error parsing line: " + lines[i]);
                         continue;
                     }
 
-                    var rect = {};
+                    var rect = { type: tokens[j-1] };
                     renderData[destIndex].rects[tokens[j++]] = rect;
                     rect.x = parseFloat(tokens[j++]);
                     rect.y = parseFloat(tokens[j++]);
@@ -166,12 +167,21 @@
         }
 
         function drawRect(color, rect) {
-            context.strokeStyle = color;
-            context.strokeRect(
-                projectX(rect.x),
-                projectY(rect.y),
-                rect.width * scale,
-                rect.height * scale);
+            if (rect.type == 'rect') {
+                context.strokeStyle = color;
+                context.strokeRect(
+                    projectX(rect.x),
+                    projectY(rect.y),
+                    rect.width * scale,
+                    rect.height * scale);
+            } else if (rect.type == 'fillrect') {
+                context.fillStyle = color;
+                context.fillRect(
+                    projectX(rect.x),
+                    projectY(rect.y),
+                    rect.width * scale,
+                    rect.height * scale);
+            }
         }
 
         // vector is an object containg x,y properties. the vector
