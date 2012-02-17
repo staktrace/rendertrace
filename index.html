@@ -38,15 +38,13 @@
         maxY = undefined;
 
         var charPos = 0;
-        var lines = document.getElementById('trace').value.split(/(\r|\n)/);
+        var lastLineLength = 0;
+        var lines = document.getElementById('trace').value.split(/\r|\n/);
         for (var i = 0; i < lines.length; i++) {
-            if (lines[i] == '\r' || lines[i] == '\n') {
-                continue;
-            }
-
+            charPos += lastLineLength;
+            lastLineLength = lines[i].length + 1;
             // skip lines without RENDERTRACE
             if (! /RENDERTRACE/.test(lines[i])) {
-                charPos += lines[i].length + 1;
                 continue;
             }
 
@@ -56,7 +54,6 @@
             while (j < tokens.length && tokens[j++] != "RENDERTRACE");
             if (j >= tokens.length - 2) {
                 log("Error parsing line: " + lines[i]);
-                charPos += lines[i].length + 1;
                 continue;
             }
 
@@ -87,7 +84,6 @@
                 case "rect":
                     if (j > tokens.length - 5) {
                         log("Error parsing line: " + lines[i]);
-                        charPos += lines[i].length + 1;
                         continue;
                     }
 
@@ -114,7 +110,6 @@
                 case "vector":
                     if (j > tokens.length - 3) {
                         log("Error parsing line: " + lines[i]);
-                        charPos += lines[i].length + 1;
                         continue;
                     }
 
@@ -128,7 +123,6 @@
                     log("Error parsing line " + lines[i]);
                     break;
             }
-            charPos += lines[i].length + 1;
         }
 
         if (! renderFrame()) {
