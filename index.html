@@ -140,7 +140,7 @@
 
         var timeStart = renderData[0].timestamp;
         var timeEnd = renderData[renderData.length-1].timestamp;
-        var duration = timeEnd - timeStart;
+        var duration = Math.ceil((timeEnd - timeStart)/1000) * 1000 + 1000;
         var cursor = currentFrameTime - timeStart;
 
         var canvas = document.getElementById('timeline');
@@ -155,7 +155,7 @@
 
         context.strokeStyle = 'black';
         for(var i = 0; i < duration; i+=1000) {
-            context.fillText(Math.round(i/1000), i/1000 * pixelsPerSecond, 15);
+            context.fillText(Math.round(i/1000) + " ms", i/1000 * pixelsPerSecond, 15);
         }
 
         context.strokeStyle = 'gray';
@@ -342,7 +342,8 @@
 
         // draw timestamp and frame counter
         context.fillStyle = 'black';
-        context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
+        var timeStart = renderData[0].timestamp;
+        context.fillText((frame + 1) + "/" + renderData.length + ": " + (currentFrameTime - timeStart) + "ms (" + renderData[currentFrame].timestamp + ")", 5, 15);
 
         log(renderData[frame].dataStart);
         log(renderData[frame].dataEnd);
@@ -886,7 +887,7 @@ SHADOW RENDERTRACE 2361305538 rect #130000 12 35 20 20
     <button onclick="reset(false)">&raquo;</button>
    </div>
    <div style="height: 100px; overflow:scroll;">
-     <canvas id="timeline" width="100" height="500">Canvas not supported!</canvas>
+     <canvas id="timeline" width="100" height="200">Canvas not supported!</canvas>
    </div>
   </div>
   <canvas id="canvas" width="700" height="600" style="border: solid 1px black; float: left">Canvas not supported!</canvas>
