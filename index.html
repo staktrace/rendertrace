@@ -147,7 +147,33 @@
             log("No canvas context");
         }
 
+        if (canvas.offsetX == null) {
+            canvas.offsetX = 0;
+            canvas.offsetY = 0;
+            canvas.zoomLevel = 1;
+        }
+
+        canvas.onmousemove = function(e) {
+            if (canvas.isDragging != true) return;
+            canvas.offsetX = canvas.dragStartX - e.pageX;
+            canvas.offsetY = canvas.dragStartY - e.pageY;
+            renderFrame();
+        }
+
+        canvas.onmousedown = function(e) {
+            if (canvas.isDragging != true) {
+                canvas.isDragging = true;
+                canvas.dragStartX = e.pageX;
+                canvas.dragStartY = e.pageY;
+            }
+        }
+
+        canvas.onmouseup = function(e) {
+            canvas.isDragging = false;
+        }
+
         var context = canvas.getContext('2d');
+        context.setTransform(1,0,0,1,0,0);
 
         // midpoint of the bounding box
         var midX = (minX + maxX) / 2.0;
@@ -210,6 +236,9 @@
         // clear canvas
         context.fillStyle = 'white';
         context.fillRect(0, 0, canvas.width, canvas.height);
+
+        context.translate(canvas.offsetX, canvas.offsetY);  
+
         // draw rects
         for (i in renderData[frame].rects) {
             drawRect(i, renderData[frame].rects[i]);
@@ -218,6 +247,10 @@
         for (i in renderData[frame].vectors) {
             drawVector(i, renderData[frame].vectors[i]);
         }
+
+        // Reset transform to prevent scrolling of text overlays
+        context.setTransform(1,0,0,1,0,0);
+
         // draw timestamp and frame counter
         context.fillStyle = 'black';
         context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
