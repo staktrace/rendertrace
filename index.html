@@ -177,7 +177,7 @@
             for (j in renderData[i].rects) {
                 var rect = renderData[i].rects[j];
                 if (rect.type == 'fillrect' && renderData[i].rects[j].width != 0) {
-                    if (renderData[i+1].rects[j].width == 0) {
+                    if (renderData[i+1].rects[j].width == 0 || renderData[i+1].rects[j].lastChanged != renderData[i].rects[j].lastChanged) {
                         var startFrame = renderData[i].rects[j].lastChanged;
                         var endFrame = i+1;
                         var startTime = renderData[startFrame].timestamp - timeStart;
