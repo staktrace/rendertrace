@@ -226,15 +226,51 @@
         log(renderData[frame].dataEnd);
 
         var activeLines = "";
+        document.getElementById('active').textContent = "";
         // draw rects
         for (i in renderData[frame].rects) {
-            activeLines += renderData[frame].rects[i].srcLine + "\n";
+            var elem = document.createElement('a');
+            elem.textContent = renderData[frame].rects[i].srcLine;
+            elem.onmouseover = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                    context.lineWidth = 5;
+                    drawRect(i, renderData[frame].rects[i]);
+                    context.lineWidth = 1;
+                }
+            })(i, frame);
+            elem.onmouseout = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                }
+            })(i, frame);
+            document.getElementById('active').appendChild(elem);
+
+            var nl = document.createElement('br');
+            document.getElementById('active').appendChild(nl);
         }
         // draw vectors
         for (i in renderData[frame].vectors) {
-            activeLines += renderData[frame].vectors[i].srcLine + "\n";
+            var elem = document.createElement('a');
+            elem.textContent = renderData[frame].vector[i].srcLine;
+            elem.onmouseover = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                    context.lineWidth = 5;
+                    drawVector(i, renderData[frame].vector[i]);
+                    context.lineWidth = 1;
+                }
+            })(i, frame);
+            elem.onmouseout = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                }
+            })(i, frame);
+            document.getElementById('active').appendChild(elem);
+
+            var nl = document.createElement('br');
+            document.getElementById('active').appendChild(nl);
         }
-        document.getElementById('active').textContent = activeLines;
 
         return true;
     }
