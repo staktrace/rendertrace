@@ -155,16 +155,43 @@
 
         canvas.onmousemove = function(e) {
             if (canvas.isDragging != true) return;
-            canvas.offsetX = canvas.dragStartX - e.pageX;
-            canvas.offsetY = canvas.dragStartY - e.pageY;
+            canvas.offsetX = canvas.oldDragOffsetX + canvas.dragStartX - e.pageX;
+            canvas.offsetY = canvas.oldDragOffsetY + canvas.dragStartY - e.pageY;
             renderFrame();
         }
+
+        if (canvas.zoomRepaintTimeout != null) {
+            clearTimeout(canvas.zoomRepaintTimeout);
+            canvas.zoomRepaintTimeout = null;
+        }
+
+        canvas.addEventListener("DOMMouseScroll", function mouse(e) {
+            if (e.axis != e.VERTICAL_AXIS) return;
+            e.preventDefault();
+            if (e.detail > 0) {
+                canvas.zoomLevel += 0.01;
+            } else {
+                canvas.zoomLevel += -0.01;
+            }
+            if (canvas.zoomLevel < 0.1 ) canvas.zoomLevel = 0.1;
+            if (canvas.zoomLevel > 100 ) canvas.zoomLevel = 100;
+            // We need to limit the repaint otherwise we lock
+            // up the browser in an scroll event + render storm
+            if (canvas.zoomRepaintTimeout != null) {
+                clearTimeout(canvas.zoomRepaintTimeout);
+            }
+            canvas.zoomRepaintTimeout = setTimeout(renderFrame, 15);
+            dump(canvas.zoomLevel + "\n");
+        }, false);  
+        canvas.DOMMouseScroll = function(e) { alert("hey"); }
 
         canvas.onmousedown = function(e) {
             if (canvas.isDragging != true) {
                 canvas.isDragging = true;
                 canvas.dragStartX = e.pageX;
                 canvas.dragStartY = e.pageY;
+                canvas.oldDragOffsetX = canvas.offsetX;
+                canvas.oldDragOffsetY = canvas.offsetY;
             }
         }
 
@@ -238,6 +265,7 @@
         context.fillRect(0, 0, canvas.width, canvas.height);
 
         context.translate(canvas.offsetX, canvas.offsetY);  
+        context.scale(canvas.zoomLevel, canvas.zoomLevel);  
 
         // draw rects
         for (i in renderData[frame].rects) {
