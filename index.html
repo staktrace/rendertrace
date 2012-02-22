@@ -9,6 +9,7 @@
 
     renderData = new Array();
     currentFrame = 0;
+    currentFrameTime = 0;
     playing = false;
     timerId = 0;
 
@@ -57,7 +58,7 @@
                 continue;
             }
 
-            var timestamp = tokens[j++];
+            var timestamp = parseInt(tokens[j++]);
             var destIndex = renderData.length;
             if (destIndex == 0) {
                 // create the initial frame
@@ -68,6 +69,7 @@
                     rects: {},
                     vectors: {},
                 });
+                currentFrameTime = timestamp;
             } else if (renderData[destIndex - 1].timestamp == timestamp) {
                 // timestamp hasn't changed use, so update the previous object
                 destIndex--;
@@ -133,14 +135,73 @@
         }
     }
 
+    function renderTimeline() {
+        if (renderData.length < 1) return;
+
+        var timeStart = renderData[0].timestamp;
+        var timeEnd = renderData[renderData.length-1].timestamp;
+        var duration = timeEnd - timeStart;
+        var cursor = currentFrameTime - timeStart;
+
+        var canvas = document.getElementById('timeline');
+        if (! canvas.getContext) {
+            log("No canvas context");
+        }
+        var pixelsPerSecond = 500;
+        canvas.width = duration / 1000 * pixelsPerSecond;
+
+        var context = canvas.getContext('2d');
+        context.setTransform(1,0,0,1,0,0);
+
+        context.strokeStyle = 'black';
+        for(var i = 0; i < duration; i+=1000) {
+            context.fillText(Math.round(i/1000), i/1000 * pixelsPerSecond, 15);
+        }
+
+        context.strokeStyle = 'gray';
+        context.lineWidth = 1;
+        for(var i = 0; i < renderData.length; i++) {
+            var time = renderData[i].timestamp - timeStart;
+            context.beginPath();
+            context.moveTo(time / 1000 * pixelsPerSecond, 0);
+            context.lineTo(time / 1000 * pixelsPerSecond, canvas.height);
+            context.closePath();
+            context.stroke();
+        }
+
+        context.strokeStyle = 'green';
+        context.lineWidth = 2;
+        context.beginPath();
+        context.moveTo(cursor / 1000 * pixelsPerSecond, 0);
+        context.lineTo(cursor / 1000 * pixelsPerSecond, canvas.height);
+        context.closePath();
+        context.stroke();
+
+    }
+
     // render the current frame (i.e. renderData[currentFrame])
     // returns false if currentFrame is out of bounds, true otherwise
     function renderFrame() {
+        for (var i = 0; i < renderData.length; i++) {
+            if (renderData[i].timestamp > currentFrameTime) {
+                currentFrame = i;
+                break;
+            } else if (i+1 < renderData.length && renderData[i+1].timestamp > currentFrameTime) {
+                currentFrame = i;
+                break;
+            }
+            if (i+1 == renderData.length) {
+                currentFrame = renderData.length-1;
+            }
+        }
+        dump(currentFrameTime + "\n");
         var frame = currentFrame;
         if (frame < 0 || frame >= renderData.length) {
             log("Invalid frame index");
             return false;
         }
+
+        renderTimeline();
 
         var canvas = document.getElementById('canvas');
         if (! canvas.getContext) {
@@ -342,6 +403,7 @@
 
     function reset(beginning) {
         currentFrame = (beginning ? 0 : renderData.length - 1);
+        currentFrameTime = renderData[currentFrame].timestamp;
         renderFrame();
     }
 
@@ -350,6 +412,7 @@
             togglePlay();
         }
         currentFrame += (backwards ? -1 : 1);
+        currentFrameTime = renderData[currentFrame].timestamp;
         if (! renderFrame()) {
             currentFrame -= (backwards ? -1 : 1);
         }
@@ -361,9 +424,9 @@
             playing = false;
         } else {
             timerId = setInterval(function() {
-                currentFrame++;
-                if (! renderFrame()) {
-                    currentFrame--;
+                currentFrameTime += 5;
+                if (! renderFrame() || currentFrameTime > renderData[renderData.length - 1].timestamp) {
+                    currentFrameTime = renderData[renderData.length - 1].timestamp;
                     togglePlay();
                 }
             }, FRAME_INTERVAL_MS);
@@ -376,6 +439,9 @@
             togglePlay();
         }
         currentFrame = 0;
+        if (currentFrame.length > 0) {
+            currentFrameTime = renderData[currentFrame].timestamp;
+        }
         renderFrame();
     }
   </script>
@@ -818,6 +884,9 @@ SHADOW RENDERTRACE 2361305538 rect #130000 12 35 20 20
     <button onclick="stop()">&#9744;</button>
     <button onclick="step(false)">&gt;</button>
     <button onclick="reset(false)">&raquo;</button>
+   </div>
+   <div style="height: 100px; overflow:scroll;">
+     <canvas id="timeline" width="100" height="500">Canvas not supported!</canvas>
    </div>
   </div>
   <canvas id="canvas" width="700" height="600" style="border: solid 1px black; float: left">Canvas not supported!</canvas>
