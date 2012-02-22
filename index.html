@@ -97,6 +97,7 @@
                     rect.width = parseFloat(tokens[j++]);
                     rect.height = parseFloat(tokens[j++]);
                     rect.srcLine = lines[i];
+                    rect.lastChanged = destIndex;
 
                     if (typeof minX == "undefined") {
                         minX = rect.x;
@@ -122,6 +123,7 @@
                     vector.x = parseFloat(tokens[j++]);
                     vector.y = parseFloat(tokens[j++]);
                     vector.srcLine = lines[i];
+                    vector.lastChanged = destIndex;
                     break;
 
                 default:
@@ -140,7 +142,7 @@
 
         var timeStart = renderData[0].timestamp;
         var timeEnd = renderData[renderData.length-1].timestamp;
-        var duration = Math.ceil((timeEnd - timeStart)/1000) * 1000 + 1000;
+        var duration = Math.ceil((timeEnd - timeStart)/1000) * 1000 + 100;
         var cursor = currentFrameTime - timeStart;
 
         var canvas = document.getElementById('timeline');
@@ -167,6 +169,31 @@
             context.lineTo(time / 1000 * pixelsPerSecond, canvas.height);
             context.closePath();
             context.stroke();
+        }
+
+        var colorToRow = {};
+        var nextRow = 0;
+        for(var i = 0; i < renderData.length - 1; i++) {
+            for (j in renderData[i].rects) {
+                var rect = renderData[i].rects[j];
+                if (rect.type == 'fillrect' && renderData[i].rects[j].width != 0) {
+                    if (renderData[i+1].rects[j].width == 0) {
+                        var startFrame = renderData[i].rects[j].lastChanged;
+                        var endFrame = i+1;
+                        var startTime = renderData[startFrame].timestamp - timeStart;
+                        var endTime = renderData[endFrame].timestamp - timeStart;
+                        var row = colorToRow[j];
+                        if (row == null) {
+                            row = nextRow++;
+                            colorToRow[j] = row;
+                        }
+
+                        context.fillStyle = j;
+                        context.fillRect(startTime / 1000 * pixelsPerSecond, 30 + row * 20, (endTime - startTime) / 1000 * pixelsPerSecond, 10);
+                        
+                    }
+                }
+            }
         }
 
         context.strokeStyle = 'green';
