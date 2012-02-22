@@ -295,6 +295,8 @@
             elem.onmouseover = (function(i, frame) {
                 return function() {
                     renderFrame();
+                    context.translate(canvas.offsetX, canvas.offsetY);  
+                    context.scale(canvas.zoomLevel, canvas.zoomLevel);  
                     context.lineWidth = 5;
                     drawRect(i, renderData[frame].rects[i]);
                     context.lineWidth = 1;
@@ -317,6 +319,8 @@
             elem.onmouseover = (function(i, frame) {
                 return function() {
                     renderFrame();
+                    context.translate(canvas.offsetX, canvas.offsetY);  
+                    context.scale(canvas.zoomLevel, canvas.zoomLevel);  
                     context.lineWidth = 5;
                     drawVector(i, renderData[frame].vector[i]);
                     context.lineWidth = 1;
