@@ -18,6 +18,35 @@
     maxX = undefined;
     maxY = undefined;
 
+    function relMouseCoords(event){
+        var totalOffsetX = 0;
+        var totalOffsetY = 0;
+        var canvasX = 0;
+        var canvasY = 0;
+        var currentElement = this;
+
+        do{
+            totalOffsetX += currentElement.offsetLeft;
+            totalOffsetY += currentElement.offsetTop;
+        }
+        while(currentElement = currentElement.offsetParent)
+
+        currentElement = this;
+        do{
+            if (currentElement.scrollLeft != null) {
+                dump(currentElement.tagName + " " + currentElement.scrollLeft + "\n");
+                totalOffsetX -= currentElement.scrollLeft;
+            }
+        }
+        while(currentElement = currentElement.parentNode)
+
+        canvasX = event.pageX - totalOffsetX;
+        canvasY = event.pageY - totalOffsetY;
+
+        return {x:canvasX, y:canvasY}
+    }
+    HTMLCanvasElement.prototype.relMouseCoords = relMouseCoords;
+
     function log(x) {
         if (console) {
             console.log(x);
@@ -151,6 +180,24 @@
         }
         var pixelsPerSecond = 500;
         canvas.width = duration / 1000 * pixelsPerSecond;
+
+        canvas.onmousedown = function(e) {
+            canvas.isDragging = true;
+            var clickX = canvas.relMouseCoords(e).x;
+            currentFrameTime = timeStart + clickX / pixelsPerSecond * 1000;
+            renderFrame();
+        }
+
+        canvas.onmouseup = function(e) {
+            canvas.isDragging = false;
+        }
+
+        canvas.onmousemove = function(e) {
+            if (canvas.isDragging != true) return;
+            var clickX = canvas.relMouseCoords(e).x;
+            currentFrameTime = timeStart + clickX / pixelsPerSecond * 1000;
+            renderFrame();
+        }
 
         var context = canvas.getContext('2d');
         context.setTransform(1,0,0,1,0,0);
