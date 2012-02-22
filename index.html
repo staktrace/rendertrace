@@ -9,6 +9,7 @@
 
     renderData = new Array();
     currentFrame = 0;
+    currentFrameTime = 0;
     playing = false;
     timerId = 0;
 
@@ -16,6 +17,35 @@
     minY = undefined;
     maxX = undefined;
     maxY = undefined;
+
+    function relMouseCoords(event){
+        var totalOffsetX = 0;
+        var totalOffsetY = 0;
+        var canvasX = 0;
+        var canvasY = 0;
+        var currentElement = this;
+
+        do{
+            totalOffsetX += currentElement.offsetLeft;
+            totalOffsetY += currentElement.offsetTop;
+        }
+        while(currentElement = currentElement.offsetParent)
+
+        currentElement = this;
+        do{
+            if (currentElement.scrollLeft != null) {
+                dump(currentElement.tagName + " " + currentElement.scrollLeft + "\n");
+                totalOffsetX -= currentElement.scrollLeft;
+            }
+        }
+        while(currentElement = currentElement.parentNode)
+
+        canvasX = event.pageX - totalOffsetX;
+        canvasY = event.pageY - totalOffsetY;
+
+        return {x:canvasX, y:canvasY}
+    }
+    HTMLCanvasElement.prototype.relMouseCoords = relMouseCoords;
 
     function log(x) {
         if (console) {
@@ -57,7 +87,7 @@
                 continue;
             }
 
-            var timestamp = tokens[j++];
+            var timestamp = parseInt(tokens[j++]);
             var destIndex = renderData.length;
             if (destIndex == 0) {
                 // create the initial frame
@@ -66,8 +96,9 @@
                     dataStart: charPos,
                     dataEnd: charPos + lines[i].length,
                     rects: {},
-                    vectors: {}
+                    vectors: {},
                 });
+                currentFrameTime = timestamp;
             } else if (renderData[destIndex - 1].timestamp == timestamp) {
                 // timestamp hasn't changed use, so update the previous object
                 destIndex--;
@@ -94,6 +125,8 @@
                     rect.y = parseFloat(tokens[j++]);
                     rect.width = parseFloat(tokens[j++]);
                     rect.height = parseFloat(tokens[j++]);
+                    rect.srcLine = lines[i];
+                    rect.lastChanged = destIndex;
 
                     if (typeof minX == "undefined") {
                         minX = rect.x;
@@ -118,6 +151,8 @@
                     renderData[destIndex].vectors[tokens[j++]] = vector;
                     vector.x = parseFloat(tokens[j++]);
                     vector.y = parseFloat(tokens[j++]);
+                    vector.srcLine = lines[i];
+                    vector.lastChanged = destIndex;
                     break;
 
                 default:
@@ -131,21 +166,176 @@
         }
     }
 
+    function renderTimeline() {
+        if (renderData.length < 1) return;
+
+        var timeStart = renderData[0].timestamp;
+        var timeEnd = renderData[renderData.length-1].timestamp;
+        var duration = Math.ceil((timeEnd - timeStart)/1000) * 1000 + 100;
+        var cursor = currentFrameTime - timeStart;
+
+        var canvas = document.getElementById('timeline');
+        if (! canvas.getContext) {
+            log("No canvas context");
+        }
+        var pixelsPerSecond = 500;
+        canvas.width = duration / 1000 * pixelsPerSecond;
+
+        canvas.onmousedown = function(e) {
+            canvas.isDragging = true;
+            var clickX = canvas.relMouseCoords(e).x;
+            currentFrameTime = timeStart + clickX / pixelsPerSecond * 1000;
+            renderFrame();
+        }
+
+        canvas.onmouseup = function(e) {
+            canvas.isDragging = false;
+        }
+
+        canvas.onmousemove = function(e) {
+            if (canvas.isDragging != true) return;
+            var clickX = canvas.relMouseCoords(e).x;
+            currentFrameTime = timeStart + clickX / pixelsPerSecond * 1000;
+            renderFrame();
+        }
+
+        var context = canvas.getContext('2d');
+        context.setTransform(1,0,0,1,0,0);
+
+        context.strokeStyle = 'black';
+        for(var i = 0; i < duration; i+=1000) {
+            context.fillText(Math.round(i/1000) + " ms", i/1000 * pixelsPerSecond, 15);
+        }
+
+        context.strokeStyle = 'gray';
+        context.lineWidth = 1;
+        for(var i = 0; i < renderData.length; i++) {
+            var time = renderData[i].timestamp - timeStart;
+            context.beginPath();
+            context.moveTo(time / 1000 * pixelsPerSecond, 20);
+            context.lineTo(time / 1000 * pixelsPerSecond, canvas.height);
+            context.closePath();
+            context.stroke();
+        }
+
+        var colorToRow = {};
+        var nextRow = 0;
+        for(var i = 0; i < renderData.length - 1; i++) {
+            for (j in renderData[i].rects) {
+                var rect = renderData[i].rects[j];
+                if (rect.type == 'fillrect' && renderData[i].rects[j].width != 0) {
+                    if (renderData[i+1].rects[j].width == 0 || renderData[i+1].rects[j].lastChanged != renderData[i].rects[j].lastChanged) {
+                        var startFrame = renderData[i].rects[j].lastChanged;
+                        var endFrame = i+1;
+                        var startTime = renderData[startFrame].timestamp - timeStart;
+                        var endTime = renderData[endFrame].timestamp - timeStart;
+                        var row = colorToRow[j];
+                        if (row == null) {
+                            row = nextRow++;
+                            colorToRow[j] = row;
+                        }
+
+                        context.fillStyle = j;
+                        context.fillRect(startTime / 1000 * pixelsPerSecond, 30 + row * 20, (endTime - startTime) / 1000 * pixelsPerSecond, 10);
+                        
+                    }
+                }
+            }
+        }
+
+        context.strokeStyle = 'green';
+        context.lineWidth = 2;
+        context.beginPath();
+        context.moveTo(cursor / 1000 * pixelsPerSecond, 15);
+        context.lineTo(cursor / 1000 * pixelsPerSecond, canvas.height);
+        context.closePath();
+        context.stroke();
+
+    }
+
     // render the current frame (i.e. renderData[currentFrame])
     // returns false if currentFrame is out of bounds, true otherwise
     function renderFrame() {
+        for (var i = 0; i < renderData.length; i++) {
+            if (renderData[i].timestamp > currentFrameTime) {
+                currentFrame = i;
+                break;
+            } else if (i+1 < renderData.length && renderData[i+1].timestamp > currentFrameTime) {
+                currentFrame = i;
+                break;
+            }
+            if (i+1 == renderData.length) {
+                currentFrame = renderData.length-1;
+            }
+        }
+        dump(currentFrameTime + "\n");
         var frame = currentFrame;
         if (frame < 0 || frame >= renderData.length) {
             log("Invalid frame index");
             return false;
         }
 
+        renderTimeline();
+
         var canvas = document.getElementById('canvas');
         if (! canvas.getContext) {
             log("No canvas context");
         }
 
+        if (canvas.offsetX == null) {
+            canvas.offsetX = 0;
+            canvas.offsetY = 0;
+            canvas.zoomLevel = 1;
+        }
+
+        canvas.onmousemove = function(e) {
+            if (canvas.isDragging != true) return;
+            canvas.offsetX = canvas.oldDragOffsetX + -(canvas.dragStartX - e.pageX);
+            canvas.offsetY = canvas.oldDragOffsetY + -(canvas.dragStartY - e.pageY);
+            renderFrame();
+        }
+
+        if (canvas.zoomRepaintTimeout != null) {
+            clearTimeout(canvas.zoomRepaintTimeout);
+            canvas.zoomRepaintTimeout = null;
+        }
+
+        canvas.addEventListener("DOMMouseScroll", function mouse(e) {
+            if (e.axis != e.VERTICAL_AXIS) return;
+            e.preventDefault();
+            if (e.detail > 0) {
+                canvas.zoomLevel += 0.01;
+            } else {
+                canvas.zoomLevel += -0.01;
+            }
+            if (canvas.zoomLevel < 0.1 ) canvas.zoomLevel = 0.1;
+            if (canvas.zoomLevel > 100 ) canvas.zoomLevel = 100;
+            // We need to limit the repaint otherwise we lock
+            // up the browser in an scroll event + render storm
+            if (canvas.zoomRepaintTimeout != null) {
+                clearTimeout(canvas.zoomRepaintTimeout);
+            }
+            canvas.zoomRepaintTimeout = setTimeout(renderFrame, 15);
+            dump(canvas.zoomLevel + "\n");
+        }, false);  
+        canvas.DOMMouseScroll = function(e) { alert("hey"); }
+
+        canvas.onmousedown = function(e) {
+            if (canvas.isDragging != true) {
+                canvas.isDragging = true;
+                canvas.dragStartX = e.pageX;
+                canvas.dragStartY = e.pageY;
+                canvas.oldDragOffsetX = canvas.offsetX;
+                canvas.oldDragOffsetY = canvas.offsetY;
+            }
+        }
+
+        canvas.onmouseup = function(e) {
+            canvas.isDragging = false;
+        }
+
         var context = canvas.getContext('2d');
+        context.setTransform(1,0,0,1,0,0);
 
         // midpoint of the bounding box
         var midX = (minX + maxX) / 2.0;
@@ -208,6 +398,10 @@
         // clear canvas
         context.fillStyle = 'white';
         context.fillRect(0, 0, canvas.width, canvas.height);
+
+        context.translate(canvas.offsetX, canvas.offsetY);  
+        context.scale(canvas.zoomLevel, canvas.zoomLevel);  
+
         // draw rects
         for (i in renderData[frame].rects) {
             drawRect(i, renderData[frame].rects[i]);
@@ -216,19 +410,75 @@
         for (i in renderData[frame].vectors) {
             drawVector(i, renderData[frame].vectors[i]);
         }
+
+        // Reset transform to prevent scrolling of text overlays
+        context.setTransform(1,0,0,1,0,0);
+
         // draw timestamp and frame counter
         context.fillStyle = 'black';
-        context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
+        var timeStart = renderData[0].timestamp;
+        context.fillText((frame + 1) + "/" + renderData.length + ": " + (currentFrameTime - timeStart) + "ms (" + renderData[currentFrame].timestamp + ")", 5, 15);
 
         log(renderData[frame].dataStart);
         log(renderData[frame].dataEnd);
-        document.getElementById('active').textContent = document.getElementById('trace').value.substring(renderData[frame].dataStart, renderData[frame].dataEnd);
+
+        var activeLines = "";
+        document.getElementById('active').textContent = "";
+        // draw rects
+        for (i in renderData[frame].rects) {
+            var elem = document.createElement('a');
+            elem.textContent = renderData[frame].rects[i].srcLine;
+            elem.onmouseover = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                    context.translate(canvas.offsetX, canvas.offsetY);  
+                    context.scale(canvas.zoomLevel, canvas.zoomLevel);  
+                    context.lineWidth = 5;
+                    drawRect(i, renderData[frame].rects[i]);
+                    context.lineWidth = 1;
+                }
+            })(i, frame);
+            elem.onmouseout = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                }
+            })(i, frame);
+            document.getElementById('active').appendChild(elem);
+
+            var nl = document.createElement('br');
+            document.getElementById('active').appendChild(nl);
+        }
+        // draw vectors
+        for (i in renderData[frame].vectors) {
+            var elem = document.createElement('a');
+            elem.textContent = renderData[frame].vector[i].srcLine;
+            elem.onmouseover = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                    context.translate(canvas.offsetX, canvas.offsetY);  
+                    context.scale(canvas.zoomLevel, canvas.zoomLevel);  
+                    context.lineWidth = 5;
+                    drawVector(i, renderData[frame].vector[i]);
+                    context.lineWidth = 1;
+                }
+            })(i, frame);
+            elem.onmouseout = (function(i, frame) {
+                return function() {
+                    renderFrame();
+                }
+            })(i, frame);
+            document.getElementById('active').appendChild(elem);
+
+            var nl = document.createElement('br');
+            document.getElementById('active').appendChild(nl);
+        }
 
         return true;
     }
 
     function reset(beginning) {
         currentFrame = (beginning ? 0 : renderData.length - 1);
+        currentFrameTime = renderData[currentFrame].timestamp;
         renderFrame();
     }
 
@@ -237,6 +487,7 @@
             togglePlay();
         }
         currentFrame += (backwards ? -1 : 1);
+        currentFrameTime = renderData[currentFrame].timestamp;
         if (! renderFrame()) {
             currentFrame -= (backwards ? -1 : 1);
         }
@@ -248,9 +499,9 @@
             playing = false;
         } else {
             timerId = setInterval(function() {
-                currentFrame++;
-                if (! renderFrame()) {
-                    currentFrame--;
+                currentFrameTime += 5;
+                if (! renderFrame() || currentFrameTime > renderData[renderData.length - 1].timestamp) {
+                    currentFrameTime = renderData[renderData.length - 1].timestamp;
                     togglePlay();
                 }
             }, FRAME_INTERVAL_MS);
@@ -263,12 +514,442 @@
             togglePlay();
         }
         currentFrame = 0;
+        if (currentFrame.length > 0) {
+            currentFrameTime = renderData[currentFrame].timestamp;
+        }
         renderFrame();
     }
   </script>
  </head>
  <body>
-  <textarea id="trace" rows="10" style="width: 700px"></textarea>
+  <textarea id="trace" rows="10" style="width: 700px">
+MOZ_EVENT_TRACE sample 1329506187902 36
+CONTAINER RENDERTRACE 2361302937 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361302937 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361302937 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361302937 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361302937 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361302937 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361302937 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361302937 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361302937 fillrect #FFFF00 0 0 840 65
+CONTAINER RENDERTRACE 2361302941 rect #00FF00 32 34 518 23
+THEBES RENDERTRACE 2361302941 rect #01FF00 31 34 519 23
+THEBES RENDERTRACE 2361302941 fillrect #FFFF00 32 34 518 23
+THEBES RENDERTRACE 2361302945 fillrect #FFFF00 0 0 0 0
+CONTAINER RENDERTRACE 2361302946 rect #00FF00 0 3 12 23
+THEBES RENDERTRACE 2361302946 rect #01FF00 0 0 0 0
+COLOR RENDERTRACE 2361302946 rect #02FF00 0 3 12 23
+THEBES RENDERTRACE 2361302946 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361302946 fillrect #FFFF00 0 0 0 0
+CONTAINER RENDERTRACE 2361302946 rect #00FF00 247 3 12 23
+THEBES RENDERTRACE 2361302946 rect #01FF00 0 0 0 0
+COLOR RENDERTRACE 2361302946 rect #02FF00 247 3 12 23
+THEBES RENDERTRACE 2361302946 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361302946 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361302947 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361302947 fillrect #FFFF00 0 65 840 860
+THEBES RENDERTRACE 2361302956 fillrect #FFFF00 0 65 0 0
+THEBES RENDERTRACE 2361302957 fillrect #FFFF00 0 925 840 19
+THEBES RENDERTRACE 2361302957 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361302957 fillrect #FFFF00 621 928 113 15
+THEBES RENDERTRACE 2361302957 fillrect #FFFF00 621 927 0 0
+SHADOW RENDERTRACE 2361302957 fillrect #FF00FF 0 0 840 65
+SHADOW RENDERTRACE 2361302958 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361302958 fillrect #FF00FF 0 65 840 860
+SHADOW RENDERTRACE 2361302959 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361302959 fillrect #FF00FF 0 925 840 19
+SHADOW RENDERTRACE 2361302959 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361302959 fillrect #FF00FF 621 928 113 15
+SHADOW RENDERTRACE 2361302959 fillrect #FF00FF 621 927 0 0
+SHADOW RENDERTRACE 2361302959 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361302959 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361302959 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361302959 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361302959 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361302959 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361302959 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361302959 rect #070000 621 928 113 15
+MOZ_EVENT_TRACE sample 1329506197426 56
+CONTAINER RENDERTRACE 2361303212 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361303212 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361303212 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361303212 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361303212 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361303212 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361303212 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361303212 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361303212 fillrect #FFFF00 305 480 63 35
+THEBES RENDERTRACE 2361303213 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361303213 fillrect #FF00FF 305 480 63 35
+SHADOW RENDERTRACE 2361303213 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361303213 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361303213 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361303213 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361303213 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361303213 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361303213 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361303213 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361303213 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361303344 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361303344 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361303344 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361303344 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361303344 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361303344 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361303344 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361303344 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361303344 fillrect #FFFF00 12 35 815 20
+CONTAINER RENDERTRACE 2361303345 rect #00FF00 32 35 26 20
+THEBES RENDERTRACE 2361303345 rect #01FF00 31 35 27 20
+THEBES RENDERTRACE 2361303345 fillrect #FFFF00 32 35 26 20
+THEBES RENDERTRACE 2361303345 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361303346 fillrect #FFFF00 0 0 0 0
+SHADOW RENDERTRACE 2361303346 fillrect #FF00FF 12 35 815 20
+SHADOW RENDERTRACE 2361303346 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361303346 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361303346 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361303346 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361303346 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361303346 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361303346 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361303346 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361303346 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361303397 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361303397 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361303397 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361303397 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361303397 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361303397 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361303397 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361303397 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361303397 fillrect #FFFF00 305 480 63 35
+THEBES RENDERTRACE 2361303398 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361303398 fillrect #FF00FF 305 480 63 35
+SHADOW RENDERTRACE 2361303398 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361303398 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361303398 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361303398 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361303398 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361303398 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361303398 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361303398 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361303398 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361303580 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361303580 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361303580 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361303580 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361303580 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361303580 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361303580 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361303580 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361303580 fillrect #FFFF00 305 480 63 35
+THEBES RENDERTRACE 2361303581 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361303581 fillrect #FF00FF 305 480 63 35
+SHADOW RENDERTRACE 2361303581 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361303581 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361303581 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361303581 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361303581 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361303581 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361303581 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361303581 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361303581 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361303682 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361303682 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361303682 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361303682 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361303682 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361303682 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361303682 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361303682 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361303682 fillrect #FFFF00 305 480 63 35
+THEBES RENDERTRACE 2361303683 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361303683 fillrect #FF00FF 305 480 63 35
+SHADOW RENDERTRACE 2361303684 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361303684 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361303684 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361303684 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361303684 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361303684 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361303684 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361303684 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361303684 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361303812 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361303812 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361303812 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361303812 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361303812 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361303812 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361303812 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361303812 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361303813 fillrect #FFFF00 140 377 596 138
+THEBES RENDERTRACE 2361303822 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361303822 fillrect #FF00FF 140 377 596 138
+SHADOW RENDERTRACE 2361303823 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361303823 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361303823 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361303823 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361303823 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361303823 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361303823 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361303823 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361303823 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361303982 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361303982 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361303982 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361303982 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361303982 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361303982 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361303982 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361303982 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361303982 fillrect #FFFF00 305 480 127 35
+THEBES RENDERTRACE 2361303983 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361303983 fillrect #FF00FF 305 480 127 35
+SHADOW RENDERTRACE 2361303983 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361303983 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361303983 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361303983 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361303983 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361303983 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361303983 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361303983 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361303983 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361304047 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361304047 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361304047 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361304047 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361304047 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361304047 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361304047 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361304047 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361304047 fillrect #FFFF00 369 480 63 35
+THEBES RENDERTRACE 2361304048 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361304048 fillrect #FF00FF 369 480 63 35
+SHADOW RENDERTRACE 2361304048 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361304048 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361304048 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361304048 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361304048 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361304048 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361304048 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361304048 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361304048 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361304231 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361304231 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361304231 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361304231 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361304231 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361304231 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361304231 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361304231 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361304231 fillrect #FFFF00 369 480 63 35
+THEBES RENDERTRACE 2361304232 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361304232 fillrect #FF00FF 369 480 63 35
+SHADOW RENDERTRACE 2361304232 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361304232 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361304232 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361304232 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361304232 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361304232 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361304232 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361304232 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361304232 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361304445 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361304445 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361304445 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361304445 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361304445 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361304445 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361304445 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361304445 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361304445 fillrect #FFFF00 369 480 63 35
+THEBES RENDERTRACE 2361304445 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361304446 fillrect #FF00FF 369 480 63 35
+SHADOW RENDERTRACE 2361304446 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361304446 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361304446 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361304446 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361304446 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361304446 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361304446 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361304446 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361304446 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361304534 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361304534 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361304534 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361304534 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361304534 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361304534 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361304534 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361304534 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361304534 fillrect #FFFF00 140 377 592 138
+THEBES RENDERTRACE 2361304536 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361304536 fillrect #FF00FF 140 377 592 138
+SHADOW RENDERTRACE 2361304536 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361304536 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361304536 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361304536 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361304536 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361304536 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361304536 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361304536 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361304536 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361304648 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361304648 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361304648 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361304648 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361304648 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361304648 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361304648 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361304648 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361304649 fillrect #FFFF00 305 480 127 35
+THEBES RENDERTRACE 2361304650 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361304650 fillrect #FF00FF 305 480 127 35
+SHADOW RENDERTRACE 2361304650 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361304650 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361304650 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361304650 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361304650 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361304650 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361304650 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361304650 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361304650 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361304666 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361304666 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361304666 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361304666 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361304666 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361304666 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361304666 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361304666 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361304666 fillrect #FFFF00 251 480 117 35
+THEBES RENDERTRACE 2361304667 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361304668 fillrect #FF00FF 251 480 117 35
+SHADOW RENDERTRACE 2361304668 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361304668 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361304668 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361304668 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361304668 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361304668 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361304668 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361304668 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361304668 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361304966 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361304966 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361304966 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361304966 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361304966 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361304966 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361304966 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361304966 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361304966 fillrect #FFFF00 251 480 53 35
+THEBES RENDERTRACE 2361304967 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361304967 fillrect #FF00FF 251 480 53 35
+SHADOW RENDERTRACE 2361304967 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361304967 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361304967 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361304967 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361304967 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361304967 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361304967 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361304967 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361304967 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361305069 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361305069 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361305069 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361305069 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361305069 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361305069 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361305069 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361305069 rect #07FF00 621 928 113 15
+THEBES RENDERTRACE 2361305069 fillrect #FFFF00 0 105 840 710
+THEBES RENDERTRACE 2361305087 fillrect #FFFF00 0 65 0 0
+SHADOW RENDERTRACE 2361305087 fillrect #FF00FF 0 105 840 710
+SHADOW RENDERTRACE 2361305088 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361305088 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361305088 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361305088 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361305088 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361305088 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361305088 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361305088 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361305088 rect #070000 621 928 113 15
+CONTAINER RENDERTRACE 2361305513 rect #00FF00 0 0 840 944
+THEBES RENDERTRACE 2361305513 rect #01FF00 0 0 840 65
+CONTAINER RENDERTRACE 2361305513 rect #02FF00 0 65 840 860
+THEBES RENDERTRACE 2361305513 rect #03FF00 0 65 840 860
+CONTAINER RENDERTRACE 2361305513 rect #04FF00 0 925 840 19
+THEBES RENDERTRACE 2361305513 rect #05FF00 0 925 840 19
+CONTAINER RENDERTRACE 2361305513 rect #06FF00 621 927 200 16
+THEBES RENDERTRACE 2361305513 rect #07FF00 621 928 113 15
+CONTAINER RENDERTRACE 2361305513 rect #08FF00 762 35 20 20
+THEBES RENDERTRACE 2361305513 rect #09FF00 762 35 20 20
+CONTAINER RENDERTRACE 2361305513 rect #10FF00 798 35 20 20
+THEBES RENDERTRACE 2361305513 rect #11FF00 798 35 20 20
+CONTAINER RENDERTRACE 2361305513 rect #12FF00 12 35 20 20
+THEBES RENDERTRACE 2361305513 rect #13FF00 12 35 20 20
+THEBES RENDERTRACE 2361305513 fillrect #FFFF00 0 0 840 65
+CONTAINER RENDERTRACE 2361305517 rect #00FF00 32 34 518 23
+THEBES RENDERTRACE 2361305518 rect #01FF00 31 34 519 23
+THEBES RENDERTRACE 2361305518 fillrect #FFFF00 32 34 518 23
+THEBES RENDERTRACE 2361305521 fillrect #FFFF00 0 0 0 0
+CONTAINER RENDERTRACE 2361305522 rect #00FF00 820 42 7 6
+THEBES RENDERTRACE 2361305522 rect #01FF00 820 42 7 6
+THEBES RENDERTRACE 2361305522 fillrect #FFFF00 820 42 7 6
+THEBES RENDERTRACE 2361305522 fillrect #FFFF00 0 0 0 0
+CONTAINER RENDERTRACE 2361305522 rect #00FF00 0 3 12 23
+THEBES RENDERTRACE 2361305522 rect #01FF00 0 0 0 0
+COLOR RENDERTRACE 2361305522 rect #02FF00 0 3 12 23
+THEBES RENDERTRACE 2361305522 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361305522 fillrect #FFFF00 0 0 0 0
+CONTAINER RENDERTRACE 2361305522 rect #00FF00 247 3 12 23
+THEBES RENDERTRACE 2361305522 rect #01FF00 0 0 0 0
+COLOR RENDERTRACE 2361305522 rect #02FF00 247 3 12 23
+THEBES RENDERTRACE 2361305522 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361305522 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361305523 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361305523 fillrect #FFFF00 0 65 840 860
+THEBES RENDERTRACE 2361305533 fillrect #FFFF00 0 65 0 0
+THEBES RENDERTRACE 2361305533 fillrect #FFFF00 0 925 840 19
+THEBES RENDERTRACE 2361305534 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361305534 fillrect #FFFF00 621 928 113 15
+THEBES RENDERTRACE 2361305534 fillrect #FFFF00 621 927 0 0
+THEBES RENDERTRACE 2361305535 fillrect #FFFF00 762 35 20 20
+THEBES RENDERTRACE 2361305535 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361305536 fillrect #FFFF00 798 35 20 20
+THEBES RENDERTRACE 2361305536 fillrect #FFFF00 0 0 0 0
+THEBES RENDERTRACE 2361305536 fillrect #FFFF00 12 35 20 20
+THEBES RENDERTRACE 2361305536 fillrect #FFFF00 0 0 0 0
+SHADOW RENDERTRACE 2361305536 fillrect #FF00FF 0 0 840 65
+SHADOW RENDERTRACE 2361305537 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361305537 fillrect #FF00FF 0 65 840 860
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 0 65 0 0
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 0 925 840 19
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 621 928 113 15
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 621 927 0 0
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 762 35 20 20
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 798 35 20 20
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 12 35 20 20
+SHADOW RENDERTRACE 2361305538 fillrect #FF00FF 0 0 0 0
+SHADOW RENDERTRACE 2361305538 rect #000000 0 0 840 944
+SHADOW RENDERTRACE 2361305538 rect #010000 0 0 840 65
+SHADOW RENDERTRACE 2361305538 rect #020000 0 65 840 860
+SHADOW RENDERTRACE 2361305538 rect #030000 0 65 840 860
+SHADOW RENDERTRACE 2361305538 rect #040000 0 925 840 19
+SHADOW RENDERTRACE 2361305538 rect #050000 0 925 840 19
+SHADOW RENDERTRACE 2361305538 rect #060000 621 927 200 16
+SHADOW RENDERTRACE 2361305538 rect #070000 621 928 113 15
+SHADOW RENDERTRACE 2361305538 rect #080000 762 35 20 20
+SHADOW RENDERTRACE 2361305538 rect #090000 762 35 20 20
+SHADOW RENDERTRACE 2361305538 rect #100000 798 35 20 20
+SHADOW RENDERTRACE 2361305538 rect #110000 798 35 20 20
+SHADOW RENDERTRACE 2361305538 rect #120000 12 35 20 20
+SHADOW RENDERTRACE 2361305538 rect #130000 12 35 20 20
+  </textarea>
   <div style="width: 700px">
    <button onclick="loadData()" style="float: right">Reload data</button>
    <div style="text-align: center">
@@ -279,8 +960,11 @@
     <button onclick="step(false)">&gt;</button>
     <button onclick="reset(false)">&raquo;</button>
    </div>
+   <div style="height: 100px; overflow:scroll;">
+     <canvas id="timeline" width="100" height="200">Canvas not supported!</canvas>
+   </div>
   </div>
   <canvas id="canvas" width="700" height="600" style="border: solid 1px black; float: left">Canvas not supported!</canvas>
-  <pre id="active" style="width: 400px; float: left; margin-left: 10px; border: solid 1px black">(currently visible stuff will go here)</pre>
+  <pre id="active" style="float: left; margin-left: 10px; border: solid 1px black">(currently visible stuff will go here)</pre>
  </body>
 </html>
