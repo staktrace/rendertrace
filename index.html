@@ -63,21 +63,16 @@
                 // create the initial frame
                 renderData.push({
                     timestamp: timestamp,
-                    dataStart: charPos,
-                    dataEnd: charPos + lines[i].length,
                     rects: {},
                     vectors: {}
                 });
             } else if (renderData[destIndex - 1].timestamp == timestamp) {
                 // timestamp hasn't changed use, so update the previous object
                 destIndex--;
-                renderData[ destIndex ].dataEnd = charPos + lines[i].length;
             } else {
                 // clone a new copy of the last frame and update timestamp
                 renderData.push(JSON.parse(JSON.stringify(renderData[destIndex - 1])));
                 renderData[destIndex].timestamp = timestamp;
-                renderData[destIndex].dataStart = charPos;
-                renderData[destIndex].dataEnd = charPos + lines[i].length;
             }
 
             switch (tokens[j++]) {
@@ -94,6 +89,8 @@
                     rect.y = parseFloat(tokens[j++]);
                     rect.width = parseFloat(tokens[j++]);
                     rect.height = parseFloat(tokens[j++]);
+                    rect.dataStart = charPos;
+                    rect.dataEnd = charPos + lines[i].length;
 
                     if (typeof minX == "undefined") {
                         minX = rect.x;
@@ -118,6 +115,8 @@
                     renderData[destIndex].vectors[tokens[j++]] = vector;
                     vector.x = parseFloat(tokens[j++]);
                     vector.y = parseFloat(tokens[j++]);
+                    vector.dataStart = charPos;
+                    vector.dataEnd = charPos + lines[i].length;
                     break;
 
                 default:
@@ -208,21 +207,22 @@
         // clear canvas
         context.fillStyle = 'white';
         context.fillRect(0, 0, canvas.width, canvas.height);
+        var activeData = '';
         // draw rects
         for (i in renderData[frame].rects) {
             drawRect(i, renderData[frame].rects[i]);
+            activeData += "\n" + document.getElementById('trace').value.substring(renderData[frame].rects[i].dataStart, renderData[frame].rects[i].dataEnd);
         }
         // draw vectors
         for (i in renderData[frame].vectors) {
             drawVector(i, renderData[frame].vectors[i]);
+            activeData += "\n" + document.getElementById('trace').value.substring(renderData[frame].vectors[i].dataStart, renderData[frame].vectors[i].dataEnd);
         }
         // draw timestamp and frame counter
         context.fillStyle = 'black';
         context.fillText((frame + 1) + "/" + renderData.length + ": " + renderData[frame].timestamp, 5, 15);
 
-        log(renderData[frame].dataStart);
-        log(renderData[frame].dataEnd);
-        document.getElementById('active').textContent = document.getElementById('trace').value.substring(renderData[frame].dataStart, renderData[frame].dataEnd);
+        document.getElementById('active').textContent = activeData;
 
         return true;
     }
