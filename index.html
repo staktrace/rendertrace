@@ -23,6 +23,10 @@
         }
     }
 
+    function getFlag(flag) {
+        return document.getElementById(flag).checked;
+    }
+
     // parses the lines in the textarea, ignoring anything that doesn't have RENDERTRACE.
     // for each matching line, tokenizes on whitespace and ignores all tokens prior to
     // RENDERTRACE. Allowed syntaxes:
@@ -40,6 +44,7 @@
         var charPos = 0;
         var lastLineLength = 0;
         var lines = document.getElementById('trace').value.split(/\r|\n/);
+        var rendertraceIndex = 0;
         for (var i = 0; i < lines.length; i++) {
             charPos += lastLineLength;
             lastLineLength = lines[i].length + 1;
@@ -57,6 +62,7 @@
                 continue;
             }
 
+            rendertraceIndex = j - 1;
             var timestamp = tokens[j++];
             var destIndex = renderData.length;
             if (destIndex == 0) {
@@ -92,16 +98,18 @@
                     rect.dataStart = charPos;
                     rect.dataEnd = charPos + lines[i].length;
 
-                    if (typeof minX == "undefined") {
-                        minX = rect.x;
-                        minY = rect.y;
-                        maxX = rect.x + rect.width;
-                        maxY = rect.y + rect.height;
-                    } else {
-                        minX = Math.min(minX, rect.x);
-                        minY = Math.min(minY, rect.y);
-                        maxX = Math.max(maxX, rect.x + rect.width);
-                        maxY = Math.max(maxY, rect.y + rect.height);
+                    if (!getFlag('excludePageFromZoom') || tokens[rendertraceIndex - 1].indexOf('page') < 0) {
+                        if (typeof minX == "undefined") {
+                            minX = rect.x;
+                            minY = rect.y;
+                            maxX = rect.x + rect.width;
+                            maxY = rect.y + rect.height;
+                        } else {
+                            minX = Math.min(minX, rect.x);
+                            minY = Math.min(minY, rect.y);
+                            maxX = Math.max(maxX, rect.x + rect.width);
+                            maxY = Math.max(maxY, rect.y + rect.height);
+                        }
                     }
                     break;
 
@@ -270,7 +278,11 @@
  <body>
   <textarea id="trace" rows="10" style="width: 700px"></textarea>
   <div style="width: 700px">
-   <button onclick="loadData()" style="float: right">Reload data</button>
+   <input type="checkbox" id="excludePageFromZoom">Exclude page coordinates from zoom calculations<br/>
+   <button onclick="loadData()">Reload data</button>
+  </div>
+  <hr/>
+  <div style="width: 700px">
    <div style="text-align: center">
     <button onclick="reset(true)">&laquo;</button>
     <button onclick="step(true)">&lt;</button>
