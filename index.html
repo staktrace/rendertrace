@@ -90,7 +90,8 @@
                     }
 
                     var rect = { type: tokens[j-1] };
-                    renderData[destIndex].rects[tokens[j++]] = rect;
+                    var id = tokens[j++];
+                    renderData[destIndex].rects[id] = rect;
                     rect.x = parseFloat(tokens[j++]);
                     rect.y = parseFloat(tokens[j++]);
                     rect.width = parseFloat(tokens[j++]);
@@ -98,7 +99,7 @@
                     rect.dataStart = charPos;
                     rect.dataEnd = charPos + lines[i].length;
 
-                    if (!getFlag('excludePageFromZoom') || tokens[rendertraceIndex - 1].indexOf('page') < 0) {
+                    if (!getFlag('excludePageFromZoom') || id != 'brown') {
                         if (typeof minX == "undefined") {
                             minX = rect.x;
                             minY = rect.y;
