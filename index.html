@@ -29,9 +29,10 @@
 
     // parses the lines in the textarea, ignoring anything that doesn't have RENDERTRACE.
     // for each matching line, tokenizes on whitespace and ignores all tokens prior to
-    // RENDERTRACE. Allowed syntaxes:
-    //   <junk> RENDERTRACE <timestamp> rect <color> <x> <y> <width> <height>
-    //   <junk> RENDERTRACE <timestamp> vector <color> <x> <y>
+    // RENDERTRACE. Additional info can be included at the end of the line, and will be
+    // displayed but not parsed. Allowed syntaxes:
+    //   <junk> RENDERTRACE <timestamp> rect <color> <x> <y> <width> <height> [extraInfo]
+    //   <junk> RENDERTRACE <timestamp> vector <color> <x> <y> [extraInfo]
     function loadData() {
         stop();
         renderData = new Array();
